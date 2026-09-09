@@ -1,6 +1,6 @@
 [package]
 name = "gb-studio-visual-asset-builder"
-version = "0.0.9"
+version = "0.0.95"
 description = "GB Asset Studio"
 authors = ["GB Asset Studio contributors"]
 edition = "2021"
@@ -14,5 +14,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

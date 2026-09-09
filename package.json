@@ -1,6 +1,6 @@
 {
-  "name": "gb-asset-studio",
-  "version": "0.0.9",
+  "name": "gb-studio-visual-asset-builder",
+  "version": "0.0.95",
   "private": true,
   "description": "Visual asset editor for GB Studio backgrounds, sprites, stage maps, tileset stickers, and pixel art.",
   "scripts": {
