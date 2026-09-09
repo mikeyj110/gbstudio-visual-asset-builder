@@ -917,7 +917,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "gb-studio-visual-asset-builder"
+name = "gb-asset-studio"
 version = "0.0.95"
 dependencies = [
  "serde",

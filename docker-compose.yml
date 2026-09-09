@@ -1,5 +1,5 @@
 services:
-  gb-studio-visual-asset-builder:
+  gb-asset-studio:
     build: .
     ports:
       - "8080:80"
