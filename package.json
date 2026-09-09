@@ -1,0 +1,14 @@
+{
+  "name": "gb-asset-studio",
+  "version": "0.0.9",
+  "private": true,
+  "description": "Visual asset editor for GB Studio backgrounds, sprites, stage maps, tileset stickers, and pixel art.",
+  "scripts": {
+    "tauri": "tauri",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.4"
+  }
+}

@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>GB Asset Studio</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div>
+      <h1>GB Asset Studio</h1>
+      <div class="sub" id="projectSubtitle">Scene Background · 160×144</div>
+    </div>
+    <div class="toolbar">
+      <button id="newProject">New</button>
+      <button id="undoAction" disabled>Undo</button>
+      <button id="redoAction" disabled>Redo</button>
+      <button id="saveProject">Save JSON</button>
+      <label class="buttonLike">Load JSON<input id="loadProject" type="file" accept="application/json" hidden></label>
+      <button id="exportPng">Export PNG</button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <aside class="leftPanel panel">
+      <section>
+        <h2>Asset</h2>
+        <label>Type
+          <select id="assetType">
+            <option value="scene">Scene Background</option>
+            <option value="sprite">Sprite</option>
+            <option value="stage">Large Background / Stage Map</option>
+          </select>
+        </label>
+        <div class="propGrid">
+          <label>Width <input id="canvasWidth" type="number" min="1" max="2048" value="160"></label>
+          <label>Height <input id="canvasHeight" type="number" min="1" max="2048" value="144"></label>
+        </div>
+        <p class="small">Canvas dimensions are stored with the project and may be changed at any time.</p>
+      </section>
+
+      <section>
+        <h2>Add layer</h2>
+        <div class="addGrid">
+          <button data-add="border" data-scene-only>Border</button>
+          <button data-add="title" data-scene-only>Title</button>
+          <button data-add="text">Text</button>
+          <button data-add="image">Image</button>
+          <button data-add="paint">Paint</button>
+          <button data-add="sticker">Sticker from Tileset</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Palette</h2>
+        <div id="paletteEditor"></div>
+      </section>
+
+      <section>
+        <h2>Canvas</h2>
+        <label>Background <select id="backgroundColor"></select></label>
+        <label><input id="showGrid" type="checkbox"> Show 8×8 grid</label>
+        <label>Zoom
+          <select id="zoomSelect">
+            <option value="1">1×</option>
+            <option value="2">2×</option>
+            <option value="3" selected>3×</option>
+            <option value="4">4×</option>
+            <option value="5">5×</option>
+            <option value="10">10×</option>
+          </select>
+        </label>
+        <label><input id="showPixelGrid" type="checkbox"> Show 1-pixel grid at 5×/10×</label>
+        <div id="cursorPosition" class="cursorPosition">Cursor: —, —</div>
+      </section>
+    </aside>
+
+    <section class="canvasArea">
+      <div class="canvasFrame">
+        <canvas id="sceneCanvas" width="160" height="144"></canvas>
+      </div>
+      <div id="statusBar">Ready.</div>
+    </section>
+
+    <aside class="rightPanel panel">
+      <section>
+        <div class="sectionHeader"><h2>Layers</h2><button id="duplicateLayer">Duplicate</button></div>
+        <div class="layerActions">
+          <button id="moveUp">▲</button>
+          <button id="moveDown">▼</button>
+          <button id="deleteLayer">Delete</button>
+        </div>
+        <div id="layerList"></div>
+      </section>
+      <section>
+        <h2>Layer properties</h2>
+        <div id="properties"><p class="muted">Select a layer.</p></div>
+      </section>
+    </aside>
+  </main>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

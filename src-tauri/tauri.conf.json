@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "GB Asset Studio",
+  "version": "0.1.0",
+  "identifier": "com.gbstudio.visualassetbuilder",
+  "build": {
+    "frontendDist": "../web"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "GB Asset Studio",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1000,
+        "minHeight": 700,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "GraphicsAndDesign",
+    "shortDescription": "Create visual assets for GB Studio",
+    "longDescription": "A layer-based visual editor for GB Studio backgrounds, sprites, stage maps, tileset stickers, and pixel art.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}
