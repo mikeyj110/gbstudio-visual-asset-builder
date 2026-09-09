@@ -1,0 +1,193 @@
+# ============================================================
+# GB Asset Studio
+# ============================================================
+
+
+# ------------------------------------------------------------
+# Node / npm
+# ------------------------------------------------------------
+
+node_modules/
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+.npm/
+.yarn/
+.pnpm-store/
+
+
+# ------------------------------------------------------------
+# Tauri / Rust build output
+# ------------------------------------------------------------
+
+# This is the BIG one.
+# Contains compiled macOS/Windows applications and build artifacts.
+src-tauri/target/
+target/
+
+# Rust temporary backup files
+**/*.rs.bk
+
+
+# ------------------------------------------------------------
+# Generated desktop packages
+# ------------------------------------------------------------
+
+*.dmg
+*.msi
+*.exe
+*.app
+*.app.tar.gz
+*.deb
+*.rpm
+*.AppImage
+*.nsis.zip
+
+
+# ------------------------------------------------------------
+# macOS
+# ------------------------------------------------------------
+
+.DS_Store
+.AppleDouble
+.LSOverride
+
+Icon?
+
+._*
+
+.Spotlight-V100
+.Trashes
+
+
+# ------------------------------------------------------------
+# Windows
+# ------------------------------------------------------------
+
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+
+Desktop.ini
+
+$RECYCLE.BIN/
+
+
+# ------------------------------------------------------------
+# Visual Studio Code
+# ------------------------------------------------------------
+
+.vscode/
+
+# Uncomment this instead if we later decide to commit shared
+# VS Code configuration.
+#
+# .vscode/*
+# !.vscode/extensions.json
+# !.vscode/settings.json
+
+
+# ------------------------------------------------------------
+# JetBrains IDEs
+# ------------------------------------------------------------
+
+.idea/
+*.iml
+
+
+# ------------------------------------------------------------
+# Temporary / backup files
+# ------------------------------------------------------------
+
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+.tmp/
+temp/
+tmp/
+
+
+# ------------------------------------------------------------
+# Logs
+# ------------------------------------------------------------
+
+*.log
+logs/
+
+
+# ------------------------------------------------------------
+# Environment / secrets
+# ------------------------------------------------------------
+
+.env
+.env.*
+!.env.example
+
+*.pem
+*.key
+*.p12
+*.pfx
+
+
+# ------------------------------------------------------------
+# Test / coverage output
+# ------------------------------------------------------------
+
+coverage/
+.nyc_output/
+
+
+# ------------------------------------------------------------
+# Local project files / exports
+# ------------------------------------------------------------
+
+# Generated GB Asset Studio project exports
+exports/
+
+# Local test assets
+test-output/
+scratch/
+
+
+# ------------------------------------------------------------
+# Docker
+# ------------------------------------------------------------
+
+# Docker itself does not normally generate anything that needs
+# ignoring. Keep these files committed:
+#
+# Dockerfile
+# docker-compose.yml
+# .dockerignore
+
+
+# ------------------------------------------------------------
+# Keep important Tauri/Rust files
+# ------------------------------------------------------------
+
+# Cargo.lock SHOULD be committed for an application.
+!src-tauri/Cargo.lock
+
+# Keep generated application icons in source control.
+!src-tauri/icons/
+!src-tauri/icons/**
+
+
+# ------------------------------------------------------------
+# Keep application source
+# ------------------------------------------------------------
+
+!web/
+!web/**
+
+!src-tauri/src/
+!src-tauri/src/**
+
+!src-tauri/tauri.conf.json

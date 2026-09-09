@@ -1,6 +1,6 @@
 [package]
 name = "gb-studio-visual-asset-builder"
-version = "0.1.0"
+version = "0.0.9"
 description = "GB Asset Studio"
 authors = ["GB Asset Studio contributors"]
 edition = "2021"
