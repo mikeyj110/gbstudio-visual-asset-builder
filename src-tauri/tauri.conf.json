@@ -27,6 +27,13 @@
     "targets": "all",
     "category": "GraphicsAndDesign",
     "shortDescription": "Create visual assets for GB Studio",
-    "longDescription": "A layer-based visual editor for GB Studio backgrounds, sprites, stage maps, tileset stickers, and pixel art."
+    "longDescription": "A layer-based visual editor for GB Studio backgrounds, sprites, stage maps, tileset stickers, and pixel art.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
   }
 }
