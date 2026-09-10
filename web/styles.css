@@ -14,11 +14,39 @@ button:disabled{opacity:.45;cursor:not-allowed}.propDivider{border:0;border-top:
 
 .tilesetPickerWrap{max-width:100%;overflow:auto;border:1px solid #444;background:#111;padding:6px;margin:8px 0;border-radius:4px}
 .tilesetPicker{display:block;image-rendering:pixelated;cursor:crosshair;max-width:none;touch-action:none;user-select:none}
-.canvasFrame canvas.pixelGrid{
+.canvasFrame {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+}
+
+.canvasFrame {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+}
+
+#pixelGridOverlay {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: none;
+  pointer-events: none;
+  z-index: 20;
+
   background-image:
-    linear-gradient(to right, rgba(255,255,255,.20) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255,255,255,.20) 1px, transparent 1px);
-  background-size:calc(var(--zoom) * 1px) calc(var(--zoom) * 1px);
+    linear-gradient(
+      to right,
+      rgba(255, 255, 255, 0.28) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.28) 1px,
+      transparent 1px
+    );
+
+  background-position: 0 0;
 }
 
 .stickerTileInfo{margin:6px 0 4px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}

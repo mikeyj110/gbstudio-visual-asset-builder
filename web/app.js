@@ -11,6 +11,15 @@ let project={assetType:'scene',width:160,height:144,palette:['#0f380f','#306230'
 let selectedId=null,isPainting=false;
 let undoState=null,redoState=null,editStartState=null,paintStartState=null;
 let stickerSelectionDrag=null;
+
+// Paint selection / copy-paste state.
+// These are editor-only values and are intentionally not stored in project JSON.
+let paintSelection=null;
+let paintSelectionDrag=null;
+let paintClipboard=null;
+let paintToolMode='paint'; // 'paint' | 'select' | 'paste' | 'shape'
+let canvasPreviewPos=null;
+let hideEditorOverlays=false;
 const uid=()=>Math.random().toString(36).slice(2,10);
 const ASSET_LABELS={scene:'Scene Background',sprite:'Sprite',stage:'Large Background / Stage Map'};
 function normalizeDimension(v,fallback){v=Math.round(Number(v));return Number.isFinite(v)?Math.max(1,Math.min(2048,v)):fallback;}
@@ -124,8 +133,283 @@ function rasterRect(l,x,y,w,h,col,filled=false){x=Math.round(x);y=Math.round(y);
 function rasterEllipse(l,x,y,w,h,col,filled=false){x=Math.round(x);y=Math.round(y);w=Math.max(1,Math.round(w));h=Math.max(1,Math.round(h));const rx=(w-1)/2,ry=(h-1)/2,cx=x+rx,cy=y+ry;if(rx===0||ry===0){rasterRect(l,x,y,w,h,col,filled);return;}for(let yy=y;yy<y+h;yy++)for(let xx=x;xx<x+w;xx++){const nx=(xx-cx)/rx,ny=(yy-cy)/ry,d=nx*nx+ny*ny;if(filled){if(d<=1.0)setPaintPixel(l,xx,yy,col)}else if(d<=1.12&&d>=0.78)setPaintPixel(l,xx,yy,col);}}
 function applyPaintShape(l){const x=+l.shapeX||0,y=+l.shapeY||0,w=Math.max(1,+l.shapeW||1),h=Math.max(1,+l.shapeH||1),col=+l.brushColor||0;if(l.shapeType==='line')rasterLine(l,x,y,x+w-1,y+h-1,col);else if(l.shapeType==='rectangle')rasterRect(l,x,y,w,h,col,false);else if(l.shapeType==='filled_rectangle')rasterRect(l,x,y,w,h,col,true);else if(l.shapeType==='ellipse')rasterEllipse(l,x,y,w,h,col,false);else if(l.shapeType==='filled_ellipse')rasterEllipse(l,x,y,w,h,col,true);}
 function alignPaintShape(l,hAlign,vAlign){if(hAlign==='left')l.shapeX=0;if(hAlign==='center')l.shapeX=Math.round((W-l.shapeW)/2);if(hAlign==='right')l.shapeX=W-l.shapeW;if(vAlign==='top')l.shapeY=0;if(vAlign==='middle')l.shapeY=Math.round((H-l.shapeH)/2);if(vAlign==='bottom')l.shapeY=H-l.shapeH;}
+
+function normalizePaintSelection(a,b,layerId){
+ const x1=Math.min(a.x,b.x),y1=Math.min(a.y,b.y);
+ const x2=Math.max(a.x,b.x),y2=Math.max(a.y,b.y);
+ return {layerId,x:x1,y:y1,width:x2-x1+1,height:y2-y1+1};
+}
+
+function currentPaintSelection(){
+ if(paintSelectionDrag){
+   return normalizePaintSelection(
+     paintSelectionDrag.start,
+     paintSelectionDrag.current,
+     paintSelectionDrag.layerId
+   );
+ }
+ return paintSelection;
+}
+
+function copyPaintSelection(){
+ const l=selected(),s=currentPaintSelection();
+ if(!l||l.type!=='paint'||!s||s.layerId!==l.id)return false;
+
+ const pixels={};
+ for(const [key,colorIndex] of Object.entries(l.pixels||{})){
+   const [px,py]=key.split(',').map(Number);
+   if(px>=s.x&&px<s.x+s.width&&py>=s.y&&py<s.y+s.height){
+     pixels[`${px-s.x},${py-s.y}`]=colorIndex;
+   }
+ }
+
+ paintClipboard={width:s.width,height:s.height,pixels};
+ return true;
+}
+
+function pastePaintClipboard(l,targetX,targetY){
+ if(!paintClipboard||!l||l.type!=='paint')return;
+
+ targetX=Math.round(targetX);
+ targetY=Math.round(targetY);
+
+ for(const [key,colorIndex] of Object.entries(paintClipboard.pixels)){
+   const [dx,dy]=key.split(',').map(Number);
+   setPaintPixel(l,targetX+dx,targetY+dy,colorIndex);
+ }
+}
+
+function drawPaintSelection(c){
+ if(hideEditorOverlays)return;
+
+ const l=selected(),s=currentPaintSelection();
+ if(!l||l.type!=='paint'||!s||s.layerId!==l.id)return;
+
+ c.save();
+
+ // Draw a high-contrast "marching ants" style outline using two passes.
+ c.lineWidth=1;
+ c.setLineDash([]);
+ c.strokeStyle='rgba(0,0,0,.9)';
+ c.strokeRect(s.x+.5,s.y+.5,s.width,s.height);
+
+ c.setLineDash([2,2]);
+ c.strokeStyle='rgba(255,255,255,.95)';
+ c.strokeRect(s.x+.5,s.y+.5,s.width,s.height);
+
+ c.restore();
+}
+
+function drawPixelMapPreview(c,pixels,alpha=.55){
+ if(!pixels||hideEditorOverlays)return;
+ c.save();
+ c.globalAlpha=alpha;
+ for(const [key,colorIndex] of Object.entries(pixels)){
+   const [x,y]=key.split(',').map(Number);
+   if(x<0||y<0||x>=W||y>=H)continue;
+   c.fillStyle=color(colorIndex);
+   c.fillRect(x,y,1,1);
+ }
+ c.restore();
+}
+
+function shapePreviewPixels(l,x,y){
+ if(!l||l.type!=='paint')return {};
+ const temp={
+   pixels:{},
+   brushColor:+l.brushColor||0,
+   shapeType:l.shapeType,
+   shapeX:x,
+   shapeY:y,
+   shapeW:Math.max(1,+l.shapeW||1),
+   shapeH:Math.max(1,+l.shapeH||1)
+ };
+ applyPaintShape(temp);
+ return temp.pixels;
+}
+
+function pastePreviewPixels(x,y){
+ if(!paintClipboard)return {};
+ const pixels={};
+ for(const [key,colorIndex] of Object.entries(paintClipboard.pixels||{})){
+   const [dx,dy]=key.split(',').map(Number);
+   const px=x+dx,py=y+dy;
+   if(px>=0&&py>=0&&px<W&&py<H)pixels[`${px},${py}`]=colorIndex;
+ }
+ return pixels;
+}
+
+function drawStickerPreview(c,l,x,y){
+ if(hideEditorOverlays||!l||l.type!=='sticker')return;
+ const ts=getTileset(l.tilesetId);
+ if(!ts||!ts.data)return;
+ const pal=getPalettizedTileset(ts,renderCanvasView);
+ if(!pal)return;
+
+ const r=stickerRegion(l),sx=r.col*8,sy=r.row*8,sw=r.cols*8,sh=r.rows*8;
+ if(sx+sw>pal.width||sy+sh>pal.height)return;
+
+ const px=Math.max(0,Math.min(W-sw,Math.round(x)));
+ const py=Math.max(0,Math.min(H-sh,Math.round(y)));
+
+ c.save();
+ c.globalAlpha=.55;
+ c.imageSmoothingEnabled=false;
+ c.drawImage(pal.canvas,sx,sy,sw,sh,px,py,sw,sh);
+ c.restore();
+
+ c.save();
+ c.setLineDash([2,2]);
+ c.lineWidth=1;
+ c.strokeStyle='rgba(255,255,255,.95)';
+ c.strokeRect(px+.5,py+.5,sw,sh);
+ c.restore();
+}
+
+function drawCanvasPreview(c){
+ if(hideEditorOverlays||!canvasPreviewPos)return;
+
+ const l=selected();
+ if(!l)return;
+
+ if(l.type==='paint'&&paintToolMode==='paste'&&paintClipboard){
+   drawPixelMapPreview(c,pastePreviewPixels(canvasPreviewPos.x,canvasPreviewPos.y),.55);
+   return;
+ }
+
+ if(l.type==='paint'&&paintToolMode==='shape'){
+   drawPixelMapPreview(c,shapePreviewPixels(l,canvasPreviewPos.x,canvasPreviewPos.y),.55);
+   return;
+ }
+
+ if(l.type==='sticker'){
+   drawStickerPreview(c,l,canvasPreviewPos.x,canvasPreviewPos.y);
+ }
+}
+
+function placementStatus(){
+ const l=selected();
+ if(!l)return 'Ready.';
+
+ if(l.type==='paint'&&paintToolMode==='select')
+   return 'Select: drag a rectangle on the canvas · Esc to cancel';
+
+ if(l.type==='paint'&&paintToolMode==='paste'&&paintClipboard)
+   return `Paste ${paintClipboard.width}×${paintClipboard.height}: move to preview · click to place · Esc to cancel`;
+
+ if(l.type==='paint'&&paintToolMode==='shape')
+   return `${String(l.shapeType||'shape').replaceAll('_',' ')} ${Math.max(1,+l.shapeW||1)}×${Math.max(1,+l.shapeH||1)}: move to preview · click to place · Esc to cancel`;
+
+ if(l.type==='sticker'&&l.tilesetId){
+   const r=stickerRegion(l);
+   return `Sticker ${r.cols*8}×${r.rows*8}: move to preview · click to place`;
+ }
+
+ return 'Ready.';
+}
+
+function updatePlacementStatus(){
+ const status=document.getElementById('statusBar');
+ if(status)status.textContent=placementStatus();
+}
+
+function cancelCanvasPlacement(){
+ paintSelectionDrag=null;
+ canvasPreviewPos=null;
+ if(paintToolMode==='select'||paintToolMode==='paste'||paintToolMode==='shape'){
+   paintToolMode='paint';
+ }
+ updatePlacementStatus();
+ render();
+}
+
+function resetPaintSelectionTools(){
+ paintSelection=null;
+ paintSelectionDrag=null;
+ paintClipboard=null;
+ paintToolMode='paint';
+ canvasPreviewPos=null;
+}
 function drawLayer(c,l){if(!l.visible)return;if(project.assetType!=='scene'&&(l.type==='border'||l.type==='title'))return;if(l.type==='border')drawBorder(c,l);if(l.type==='title')drawTitle(c,l);if(l.type==='text')drawTextLayer(c,l);if(l.type==='image')drawImage(c,l);if(l.type==='paint')drawPaint(c,l);if(l.type==='sticker')drawSticker(c,l);}
-function renderCanvasView(){syncCanvasDimensions();ctx.clearRect(0,0,W,H);ctx.fillStyle=color(project.background);ctx.fillRect(0,0,W,H);project.layers.forEach(l=>drawLayer(ctx,l));if(project.showGrid){ctx.save();for(let x=0;x<W;x+=8)line(ctx,x,0,x,H,'rgba(128,128,128,.35)');for(let y=0;y<H;y+=8)line(ctx,0,y,W,y,'rgba(128,128,128,.35)');ctx.restore();}canvas.style.width=(W*project.zoom)+'px';canvas.style.height=(H*project.zoom)+'px';canvas.classList.toggle('painting',selected()?.type==='paint');canvas.classList.toggle('placingSticker',selected()?.type==='sticker');canvas.classList.toggle('pixelGrid',!!project.showPixelGrid&&project.zoom>=5);canvas.style.setProperty('--zoom',project.zoom);}
+
+function ensurePixelGridOverlay(){
+ let overlay=document.getElementById('pixelGridOverlay');
+ const frame=canvas.parentElement;
+
+ if(!overlay){
+   overlay=document.createElement('div');
+   overlay.id='pixelGridOverlay';
+   frame.appendChild(overlay);
+ }
+
+ // Keep this self-contained so the grid works even if index.html/styles.css
+ // have not yet been updated with dedicated pixel-grid markup/styles.
+ if(getComputedStyle(frame).position==='static')frame.style.position='relative';
+
+ Object.assign(overlay.style,{
+   position:'absolute',
+   left:'0',
+   top:'0',
+   display:'none',
+   pointerEvents:'none',
+   zIndex:'20',
+   backgroundImage:[
+     'linear-gradient(to right, rgba(255,255,255,.28) 1px, transparent 1px)',
+     'linear-gradient(to bottom, rgba(255,255,255,.28) 1px, transparent 1px)'
+   ].join(','),
+   backgroundPosition:'0 0'
+ });
+
+ return overlay;
+}
+function renderCanvasView(){
+ syncCanvasDimensions();
+ ctx.clearRect(0,0,W,H);
+ ctx.fillStyle=color(project.background);
+ ctx.fillRect(0,0,W,H);
+
+ project.layers.forEach(l=>drawLayer(ctx,l));
+
+ if(project.showGrid){
+   ctx.save();
+   for(let x=0;x<W;x+=8)line(ctx,x,0,x,H,'rgba(128,128,128,.35)');
+   for(let y=0;y<H;y+=8)line(ctx,0,y,W,y,'rgba(128,128,128,.35)');
+   ctx.restore();
+ }
+
+ // Temporary placement previews are editor-only and never mutate layer data.
+ drawCanvasPreview(ctx);
+
+ // Paint selection is an editor overlay drawn on the canvas.
+ // hideEditorOverlays prevents it from being included in PNG export.
+ drawPaintSelection(ctx);
+
+ const zoom=Number(project.zoom)||1;
+ canvas.style.width=(W*zoom)+'px';
+ canvas.style.height=(H*zoom)+'px';
+
+ const activeLayer=selected();
+ const interactivePlacement=
+   activeLayer?.type==='sticker'||
+   (activeLayer?.type==='paint'&&(paintToolMode==='select'||paintToolMode==='paste'||paintToolMode==='shape'));
+
+ canvas.classList.toggle('painting',activeLayer?.type==='paint'&&paintToolMode==='paint');
+ canvas.classList.toggle('placingSticker',interactivePlacement);
+ canvas.style.cursor=interactivePlacement?'crosshair':'';
+
+ updatePlacementStatus();
+
+ // 1-pixel editor grid.
+ // This is a real DOM overlay above the canvas so the opaque canvas bitmap
+ // cannot hide it. It is intentionally shown only at 5x and 10x.
+ const pixelGrid=ensurePixelGridOverlay();
+ const showPixelGrid=!!project.showPixelGrid&&(zoom===5||zoom===10);
+
+ pixelGrid.style.display=showPixelGrid?'block':'none';
+ pixelGrid.style.width=(W*zoom)+'px';
+ pixelGrid.style.height=(H*zoom)+'px';
+ pixelGrid.style.backgroundSize=`${zoom}px ${zoom}px`;
+}
 function render(){renderCanvasView();renderLayers();renderProps();renderPalette();}
 
 function renderPalette(){const host=document.getElementById('paletteEditor');host.innerHTML='';project.palette.forEach((p,i)=>{const row=document.createElement('div');row.className='swatchRow';row.innerHTML=`<div class="swatch" style="background:${p}"></div><input class="paletteInput" type="color" value="${p}" data-pal="${i}">`;host.appendChild(row);});document.getElementById('backgroundColor').innerHTML=project.palette.map((_,i)=>`<option value="${i}" ${i===project.background?'selected':''}>Color ${i+1}</option>`).join('');}
@@ -205,14 +489,62 @@ function renderProps(){const host=document.getElementById('properties'),l=select
  if(l.type==='title')h+=`<label>Text<textarea data-key="text">${escapeHtml(l.text)}</textarea></label><div class="propGrid">${field('Width','width')}${field('Height','height')}${field('Scale','scale','number','min="1" max="4"')}${field('Spacing','spacing','number','min="0" max="4"')}</div>`+selectField('Align','align',['left','center','right'])+paletteSelect('Color','color');
  if(l.type==='text')h+=`<label>Text<textarea data-key="text">${escapeHtml(l.text)}</textarea></label><div class="propGrid">${field('Width','width')}${field('Height','height')}${field('Scale','scale','number','min="1" max="4"')}${field('Spacing','spacing')}${field('Line spacing','lineSpacing')}</div>`+selectField('Align','align',['left','center','right'])+paletteSelect('Color','color');
  if(l.type==='image')h+=`<div class="propGrid">${field('Width','width')}${field('Height','height')}</div>`+selectField('Fit','fit',['contain','cover','stretch'])+`<label class="checkboxRow"><input data-key="border" type="checkbox" ${l.border?'checked':''}> Border</label>`+paletteSelect('Border color','borderColor')+`<label>Image<input id="imageUpload" class="fileInput" type="file" accept="image/*"></label><button id="clearImage">Clear image</button>`;
- if(l.type==='paint')h+=paletteSelect('Brush color','brushColor')+field('Brush size','brushSize','number','min="1" max="8"')+`<div class="paintTools"><button id="clearPaint">Clear paint</button><button id="fillPaint">Fill canvas</button></div><hr class="propDivider"><h3 class="propHeading">Shape</h3>`+selectField('Shape','shapeType',['line','rectangle','filled_rectangle','ellipse','filled_ellipse'])+`<div class="propGrid">${field('Shape X','shapeX')}${field('Shape Y','shapeY')}${field('Shape W','shapeW','number','min="1"')}${field('Shape H','shapeH','number','min="1"')}</div><div class="alignGrid"><button data-align-h="left">Left</button><button data-align-h="center">Center</button><button data-align-h="right">Right</button><button data-align-v="top">Top</button><button data-align-v="middle">Middle</button><button data-align-v="bottom">Bottom</button></div><button id="applyShape" class="wideButton">Draw shape</button><p class="small">Freehand paint directly on the canvas, or define a shape, align it, then draw it into this paint layer.</p>`;
+ if(l.type==='paint'){
+   const selection=currentPaintSelection();
+   const hasSelection=!!(selection&&selection.layerId===l.id);
+   const selectionInfo=hasSelection
+     ? `${selection.width}×${selection.height} px at ${selection.x}, ${selection.y}`
+     : 'No selection.';
+   const clipboardInfo=paintClipboard
+     ? `Clipboard: ${paintClipboard.width}×${paintClipboard.height} px`
+     : 'Clipboard is empty.';
+
+   h+=paletteSelect('Brush color','brushColor')
+     +field('Brush size','brushSize','number','min="1" max="8"')
+     +`<div class="paintTools">
+         <button id="clearPaint">Clear paint</button>
+         <button id="fillPaint">Fill canvas</button>
+       </div>
+       <hr class="propDivider">
+       <h3 class="propHeading">Selection</h3>
+       <div class="paintTools">
+         <button id="selectPaintArea">${paintToolMode==='select'?'Selecting…':'Select Area'}</button>
+         <button id="copyPaintSelection" ${hasSelection?'':'disabled'}>Copy</button>
+         <button id="pastePaintSelection" ${paintClipboard?'':'disabled'}>${paintToolMode==='paste'?'Click Canvas…':'Paste'}</button>
+         <button id="cancelPaintSelection" ${hasSelection||paintToolMode!=='paint'?'':'disabled'}>Cancel</button>
+       </div>
+       <p class="small">${selectionInfo}<br>${clipboardInfo}</p>
+       <p class="small">Choose Select Area, drag a rectangle on the canvas, Copy it, then Paste and click the canvas to place the copied pixels in this same paint layer.</p>
+       <hr class="propDivider">
+       <h3 class="propHeading">Shape</h3>`
+     +selectField('Shape','shapeType',['line','rectangle','filled_rectangle','ellipse','filled_ellipse'])
+     +`<div class="propGrid">
+         ${field('Shape X','shapeX')}
+         ${field('Shape Y','shapeY')}
+         ${field('Shape W','shapeW','number','min="1"')}
+         ${field('Shape H','shapeH','number','min="1"')}
+       </div>
+       <div class="alignGrid">
+         <button data-align-h="left">Left</button>
+         <button data-align-h="center">Center</button>
+         <button data-align-h="right">Right</button>
+         <button data-align-v="top">Top</button>
+         <button data-align-v="middle">Middle</button>
+         <button data-align-v="bottom">Bottom</button>
+       </div>
+       <div class="paintTools">
+         <button id="applyShape">Draw at X/Y</button>
+         <button id="placeShape">${paintToolMode==='shape'?'Placing…':'Place Shape'}</button>
+       </div>
+       <p class="small">Use Draw at X/Y for exact coordinates, or Place Shape to preview it under the cursor and click where you want it.</p>`;
+ }
  if(l.type==='sticker')h+=tilesetSelect(l)+`<label>Upload tileset<input id="stickerTilesetUpload" class="fileInput" type="file" accept="image/*"></label><h3 class="propHeading">Tileset Preview</h3><div id="stickerTileInfo" class="small stickerTileInfo">No tile selection.</div><div class="tilesetPickerWrap"><canvas id="stickerTilesetPicker" class="tilesetPicker"></canvas></div><div class="propGrid">${field('Start column','tileCol','number','min="0"')}${field('Start row','tileRow','number','min="0"')}${field('Tiles wide','tileCols','number','min="1"')}${field('Tiles high','tileRows','number','min="1"')}</div><p class="small">Click and drag across the tileset to select a rectangular group of 8×8 tiles. The full highlighted region becomes one Sticker from Tileset layer. Then click the main scene canvas to place its top-left corner; X/Y remain available for precise adjustment.</p>`;
  host.innerHTML=h;if(l.type==='sticker')renderStickerPicker();}
 function escapeHtml(s=''){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}function escapeAttr(s=''){return escapeHtml(s)}
 
 function addLayer(type){if(project.assetType!=='scene'&&(type==='border'||type==='title'))return;performAction(()=>{const l=newLayer(type);project.layers.push(l);selectedId=l.id;});}
 document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>addLayer(b.dataset.add));
-document.getElementById('layerList').onclick=e=>{const item=e.target.closest('.layerItem');if(!item)return;const l=project.layers.find(x=>x.id===item.dataset.id);if(e.target.classList.contains('eye')){performAction(()=>l.visible=!l.visible);}else{selectedId=l.id;render();}};
+document.getElementById('layerList').onclick=e=>{const item=e.target.closest('.layerItem');if(!item)return;const l=project.layers.find(x=>x.id===item.dataset.id);if(e.target.classList.contains('eye')){performAction(()=>l.visible=!l.visible);}else{const oldSelected=selected();selectedId=l.id;if(oldSelected?.id!==l.id){paintSelection=null;paintSelectionDrag=null;paintToolMode='paint';canvasPreviewPos=null;}render();}};
 const propertiesHost=document.getElementById('properties');
 propertiesHost.addEventListener('focusin',e=>{
  if(!e.target.dataset.key)return;
@@ -255,9 +587,45 @@ document.getElementById('properties').onclick=e=>{const l=selected();if(!l)retur
  if(e.target.id==='clearPaint')performAction(()=>{l.pixels={};});
  if(e.target.id==='fillPaint')performAction(()=>{for(let y=0;y<H;y++)for(let x=0;x<W;x++)l.pixels[`${x},${y}`]=l.brushColor;});
  if(e.target.id==='clearImage')performAction(()=>{l.data=null;});
- if(e.target.id==='applyShape')performAction(()=>applyPaintShape(l));
+ if(e.target.id==='applyShape'){
+   canvasPreviewPos=null;
+   paintToolMode='paint';
+   performAction(()=>applyPaintShape(l));
+ }
  if(e.target.dataset.alignH)performAction(()=>alignPaintShape(l,e.target.dataset.alignH,null));
  if(e.target.dataset.alignV)performAction(()=>alignPaintShape(l,null,e.target.dataset.alignV));
+
+ if(e.target.id==='selectPaintArea'&&l.type==='paint'){
+   paintToolMode='select';
+   paintSelection=null;
+   paintSelectionDrag=null;
+   canvasPreviewPos=null;
+   render();
+ }
+
+ if(e.target.id==='copyPaintSelection'&&l.type==='paint'){
+   if(copyPaintSelection())render();
+ }
+
+ if(e.target.id==='pastePaintSelection'&&l.type==='paint'&&paintClipboard){
+   paintToolMode='paste';
+   canvasPreviewPos=null;
+   render();
+ }
+
+ if(e.target.id==='placeShape'&&l.type==='paint'){
+   paintToolMode='shape';
+   canvasPreviewPos=null;
+   render();
+ }
+
+ if(e.target.id==='cancelPaintSelection'&&l.type==='paint'){
+   paintToolMode='paint';
+   paintSelection=null;
+   paintSelectionDrag=null;
+   canvasPreviewPos=null;
+   render();
+ }
 };
 document.getElementById('paletteEditor').onchange=e=>{if(e.target.dataset.pal!=null){const before=snapshot();project.palette[+e.target.dataset.pal]=e.target.value;paletteTilesetCache.clear();rememberAction(before);render();}};
 document.getElementById('assetType').onchange=e=>{performAction(()=>{project.assetType=e.target.value;if(project.assetType!=='scene'){const l=selected();if(l&&(l.type==='border'||l.type==='title'))selectedId=null;}});updateAssetUi();};
@@ -270,7 +638,158 @@ document.getElementById('deleteLayer').onclick=()=>{const l=selected();if(!l)ret
 document.getElementById('moveUp').onclick=()=>moveSelected(1);document.getElementById('moveDown').onclick=()=>moveSelected(-1);function moveSelected(d){const l=selected();if(!l)return;const i=project.layers.indexOf(l),j=i+d;if(j<0||j>=project.layers.length)return;performAction(()=>{[project.layers[i],project.layers[j]]=[project.layers[j],project.layers[i]];});}
 
 function canvasPos(ev){const r=canvas.getBoundingClientRect();return {x:Math.floor((ev.clientX-r.left)*W/r.width),y:Math.floor((ev.clientY-r.top)*H/r.height)}}function paintAt(ev){const l=selected();if(!l||l.type!=='paint')return;const p=canvasPos(ev),bs=Math.max(1,l.brushSize||1);for(let yy=0;yy<bs;yy++)for(let xx=0;xx<bs;xx++){const x=p.x+xx,y=p.y+yy;if(x>=0&&y>=0&&x<W&&y<H)l.pixels[`${x},${y}`]=l.brushColor;}render();}
-canvas.onpointerdown=e=>{const l=selected();if(l?.type==='paint'){paintStartState=snapshot();isPainting=true;canvas.setPointerCapture(e.pointerId);paintAt(e);return;}if(l?.type==='sticker'){const p=canvasPos(e),r=stickerRegion(l),sw=r.cols*8,sh=r.rows*8;performAction(()=>{l.x=Math.max(0,Math.min(W-sw,p.x));l.y=Math.max(0,Math.min(H-sh,p.y));});}};canvas.onpointermove=e=>{const p=canvasPos(e);document.getElementById('cursorPosition').textContent=`Cursor: ${p.x}, ${p.y}`;if(isPainting)paintAt(e)};canvas.onpointerleave=()=>{document.getElementById('cursorPosition').textContent='Cursor: —, —'};canvas.onpointerup=()=>{if(isPainting&&paintStartState){rememberAction(paintStartState);paintStartState=null;}isPainting=false};canvas.onpointercancel=()=>{isPainting=false;paintStartState=null};
+canvas.onpointerdown=e=>{
+ const l=selected();
+
+ if(l?.type==='paint'){
+   if(paintToolMode==='select'){
+     const p=canvasPos(e);
+     paintSelectionDrag={
+       layerId:l.id,
+       start:p,
+       current:p
+     };
+     paintSelection=null;
+     canvasPreviewPos=null;
+     canvas.setPointerCapture(e.pointerId);
+     renderCanvasView();
+     return;
+   }
+
+   if(paintToolMode==='paste'&&paintClipboard){
+     const p=canvasPos(e);
+     const before=snapshot();
+
+     pastePaintClipboard(l,p.x,p.y);
+
+     paintSelection={
+       layerId:l.id,
+       x:p.x,
+       y:p.y,
+       width:paintClipboard.width,
+       height:paintClipboard.height
+     };
+
+     rememberAction(before);
+     paintToolMode='paint';
+     canvasPreviewPos=null;
+     render();
+     return;
+   }
+
+   if(paintToolMode==='shape'){
+     const p=canvasPos(e);
+     const before=snapshot();
+
+     l.shapeX=p.x;
+     l.shapeY=p.y;
+     applyPaintShape(l);
+
+     rememberAction(before);
+     paintToolMode='paint';
+     canvasPreviewPos=null;
+     render();
+     return;
+   }
+
+   paintStartState=snapshot();
+   isPainting=true;
+   canvas.setPointerCapture(e.pointerId);
+   paintAt(e);
+   return;
+ }
+
+ if(l?.type==='sticker'){
+   const p=canvasPos(e),r=stickerRegion(l),sw=r.cols*8,sh=r.rows*8;
+   performAction(()=>{
+     l.x=Math.max(0,Math.min(W-sw,p.x));
+     l.y=Math.max(0,Math.min(H-sh,p.y));
+   });
+   canvasPreviewPos=p;
+ }
+};
+
+canvas.onpointermove=e=>{
+ const p=canvasPos(e);
+ document.getElementById('cursorPosition').textContent=`Cursor: ${p.x}, ${p.y}`;
+
+ const l=selected();
+
+ if(paintSelectionDrag){
+   paintSelectionDrag.current=p;
+   renderCanvasView();
+   return;
+ }
+
+ if(
+   l?.type==='sticker'||
+   (l?.type==='paint'&&(paintToolMode==='paste'||paintToolMode==='shape'))
+ ){
+   canvasPreviewPos=p;
+   renderCanvasView();
+   return;
+ }
+
+ if(isPainting)paintAt(e);
+};
+
+canvas.onpointerenter=e=>{
+ const l=selected();
+ if(
+   l?.type==='sticker'||
+   (l?.type==='paint'&&(paintToolMode==='paste'||paintToolMode==='shape'))
+ ){
+   canvasPreviewPos=canvasPos(e);
+   renderCanvasView();
+ }
+};
+
+canvas.onpointerleave=()=>{
+ document.getElementById('cursorPosition').textContent='Cursor: —, —';
+ if(canvasPreviewPos){
+   canvasPreviewPos=null;
+   renderCanvasView();
+ }
+};
+
+canvas.onpointerup=e=>{
+ if(paintSelectionDrag){
+   paintSelection=normalizePaintSelection(
+     paintSelectionDrag.start,
+     paintSelectionDrag.current,
+     paintSelectionDrag.layerId
+   );
+   paintSelectionDrag=null;
+   paintToolMode='paint';
+   render();
+   return;
+ }
+
+ if(isPainting&&paintStartState){
+   rememberAction(paintStartState);
+   paintStartState=null;
+ }
+ isPainting=false;
+};
+
+canvas.onpointercancel=()=>{
+ isPainting=false;
+ paintStartState=null;
+ paintSelectionDrag=null;
+ canvasPreviewPos=null;
+ if(paintToolMode==='select')paintToolMode='paint';
+ renderCanvasView();
+};
+
+document.addEventListener('keydown',e=>{
+ if(e.key!=='Escape')return;
+ const tag=document.activeElement?.tagName;
+ if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT')document.activeElement.blur();
+ if(paintToolMode!=='paint'||paintSelectionDrag||canvasPreviewPos){
+   e.preventDefault();
+   cancelCanvasPlacement();
+ }
+});
 
 document.getElementById('undoAction').onclick=undo;document.getElementById('redoAction').onclick=redo;
 
@@ -302,16 +821,24 @@ document.getElementById('saveProject').onclick=async()=>{
  const bytes=new TextEncoder().encode(JSON.stringify(project,null,2));
  await saveBytes(bytes,'gbstudio-visual-asset.json','GB Asset Studio Project',['json']);
 };
-document.getElementById('loadProject').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{project=JSON.parse(r.result);paletteTilesetCache.clear();imageCache.clear();selectedId=null;undoState=null;redoState=null;syncControls();updateUndoRedoButtons();render()}catch(err){alert('Invalid project JSON')}};r.readAsText(f)};
+document.getElementById('loadProject').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{project=JSON.parse(r.result);paletteTilesetCache.clear();imageCache.clear();selectedId=null;undoState=null;redoState=null;resetPaintSelectionTools();syncControls();updateUndoRedoButtons();render()}catch(err){alert('Invalid project JSON')}};r.readAsText(f)};
 document.getElementById('exportPng').onclick=()=>{
  const prevGrid=project.showGrid,prevPixelGrid=project.showPixelGrid;
- project.showGrid=false;project.showPixelGrid=false;renderCanvasView();
+ project.showGrid=false;
+ project.showPixelGrid=false;
+ hideEditorOverlays=true;
+ renderCanvasView();
+
  canvas.toBlob(async b=>{
-   project.showGrid=prevGrid;project.showPixelGrid=prevPixelGrid;renderCanvasView();
+   hideEditorOverlays=false;
+   project.showGrid=prevGrid;
+   project.showPixelGrid=prevPixelGrid;
+   renderCanvasView();
+
    await saveBlob(b,'gbstudio-visual-asset.png','PNG Image',['png']);
  },'image/png');
 };
-document.getElementById('newProject').onclick=()=>{if(!confirm('Start a new project?'))return;project={assetType:'scene',width:160,height:144,palette:['#0f380f','#306230','#8bac0f','#9bbc0f'],background:3,showGrid:false,showPixelGrid:false,zoom:3,tilesets:[],layers:[]};paletteTilesetCache.clear();imageCache.clear();selectedId=null;undoState=null;redoState=null;syncControls();updateUndoRedoButtons();render()};
+document.getElementById('newProject').onclick=()=>{if(!confirm('Start a new project?'))return;project={assetType:'scene',width:160,height:144,palette:['#0f380f','#306230','#8bac0f','#9bbc0f'],background:3,showGrid:false,showPixelGrid:false,zoom:3,tilesets:[],layers:[]};paletteTilesetCache.clear();imageCache.clear();selectedId=null;undoState=null;redoState=null;resetPaintSelectionTools();syncControls();updateUndoRedoButtons();render()};
 function download(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}function syncControls(){project.assetType=project.assetType||'scene';project.width=normalizeDimension(project.width,160);project.height=normalizeDimension(project.height,144);syncCanvasDimensions();project.tilesets=project.tilesets||[];project.layers=(project.layers||[]).map(l=>{if(l.type==='sticker'){if(!l.tileCols)l.tileCols=1;if(!l.tileRows)l.tileRows=1;if(l.name==='Sticker')l.name='Sticker from Tileset';}return l;});project.showPixelGrid=!!project.showPixelGrid;document.getElementById('showGrid').checked=!!project.showGrid;document.getElementById('showPixelGrid').checked=!!project.showPixelGrid;document.getElementById('zoomSelect').value=String(project.zoom||3);updateAssetUi()}
 
 // Starter layers
