@@ -64,12 +64,62 @@ function color(i){return project.palette[Math.max(0,Math.min(3,+i||0))];}
 function selected(){return project.layers.find(l=>l.id===selectedId);}
 function drawPixelText(c,text,x,y,col,scale=1,spacing=1){x=Math.round(x);y=Math.round(y);for(const ch0 of text.toUpperCase()){const glyph=PIXEL_FONT[ch0]||PIXEL_FONT['?'];glyph.forEach((row,ry)=>[...row].forEach((b,rx)=>{if(b==='1'){c.fillStyle=col;c.fillRect(x+rx*scale,y+ry*scale,scale,scale);}}));x+=(5+spacing)*scale;}}
 function textWidth(t,s=1,sp=1){return t.length*5*s+Math.max(0,t.length-1)*sp*s;}
-function wrapText(t,max,s=1,sp=1){let lines=[],cur='';for(const word of t.toUpperCase().split(/\s+/)){const test=cur?cur+' '+word:word;if(textWidth(test,s,sp)<=max)cur=test;else{if(cur)lines.push(cur);cur=word;}}if(cur)lines.push(cur);return lines;}
+function wrapText(t,max,s=1,sp=1){
+ let lines=[],cur='';
+ const words=String(t??'').toUpperCase().trim().split(/\s+/).filter(Boolean);
+
+ if(!words.length)return [''];
+
+ for(const word of words){
+   const test=cur?cur+' '+word:word;
+   if(textWidth(test,s,sp)<=max){
+     cur=test;
+   }else{
+     if(cur)lines.push(cur);
+     cur=word;
+   }
+ }
+
+ if(cur)lines.push(cur);
+ return lines;
+}
 
 function drawBorder(c,l){const x=l.x||0,y=l.y||0,w=W,h=H,o=color(l.outer),inn=color(l.inner),a=color(l.accent),orn=color(l.ornament);c.save();c.translate(x,y);if(l.style==='none'){c.restore();return;}if(l.style==='simple'){strokeRect(c,2,2,w-5,h-5,o);strokeRect(c,4,4,w-9,h-9,a);}else if(l.style==='double'){strokeRect(c,2,2,w-5,h-5,o);strokeRect(c,5,5,w-11,h-11,inn);strokeRect(c,7,7,w-15,h-15,a);}else if(l.style==='fancy-1'){strokeRect(c,1,1,w-3,h-3,o);strokeRect(c,4,4,w-9,h-9,inn);strokeRect(c,7,7,w-15,h-15,a);[[10,10,1,1],[w-11,10,-1,1],[10,h-11,1,-1],[w-11,h-11,-1,-1]].forEach(([px,py,sx,sy])=>{line(c,px,py,px+sx*8,py,orn);line(c,px,py,px,py+sy*8,orn);});}else if(l.style==='fancy-2'){strokeRect(c,1,1,w-3,h-3,o);strokeRect(c,4,4,w-9,h-9,inn);[[8,8,1,1],[w-9,8,-1,1],[8,h-9,1,-1],[w-9,h-9,-1,-1]].forEach(([px,py,sx,sy])=>{line(c,px,py,px+sx*5,py,orn);line(c,px,py,px,py+sy*5,orn);c.fillStyle=o;c.fillRect(px+sx*2,py+sy*2,1,1);});}else if(l.style==='minimal'){line(c,8,8,w-9,8,o);line(c,8,h-9,w-9,h-9,o);}c.restore();}
 function strokeRect(c,x,y,w,h,col){c.strokeStyle=col;c.lineWidth=1;c.strokeRect(x+.5,y+.5,w,h)}function line(c,x1,y1,x2,y2,col){c.strokeStyle=col;c.beginPath();c.moveTo(x1+.5,y1+.5);c.lineTo(x2+.5,y2+.5);c.stroke();}
 function drawTitle(c,l){const tw=textWidth(l.text,l.scale,l.spacing);let x=l.x;if(l.align==='center')x=l.x+(l.width-tw)/2;else if(l.align==='right')x=l.x+l.width-tw;drawPixelText(c,l.text,x,l.y,color(l.color),l.scale,l.spacing);}
-function drawTextLayer(c,l){const lines=wrapText(l.text,l.width,l.scale,l.spacing);let y=l.y;for(const ln of lines){if(y+7*l.scale>l.y+l.height)break;let x=l.x,tw=textWidth(ln,l.scale,l.spacing);if(l.align==='center')x=l.x+(l.width-tw)/2;else if(l.align==='right')x=l.x+l.width-tw;drawPixelText(c,ln,x,y,color(l.color),l.scale,l.spacing);y+=7*l.scale+l.lineSpacing;}}
+function drawTextLayer(c,l){
+ const scale=Math.max(1,+l.scale||1);
+ const spacing=Math.max(0,+l.spacing||0);
+ const lineSpacing=Number.isFinite(+l.lineSpacing)?+l.lineSpacing:2;
+ const lineHeight=7*scale+lineSpacing;
+ const text=String(l.text??'').replace(/\r\n?/g,'\n');
+ const paragraphs=text.split('\n');
+ const lines=[];
+
+ // Preserve explicit line breaks while still wrapping each line to the text box width.
+ paragraphs.forEach(paragraph=>{
+   if(paragraph.length===0){
+     lines.push('');
+     return;
+   }
+   lines.push(...wrapText(paragraph,l.width,scale,spacing));
+ });
+
+ let y=l.y;
+
+ for(const ln of lines){
+   if(y+7*scale>l.y+l.height)break;
+
+   let x=l.x;
+   const tw=textWidth(ln,scale,spacing);
+
+   if(l.align==='center')x=l.x+(l.width-tw)/2;
+   else if(l.align==='right')x=l.x+l.width-tw;
+
+   if(ln)drawPixelText(c,ln,x,y,color(l.color),scale,spacing);
+   y+=lineHeight;
+ }
+}
 function drawImage(c,l){c.save();if(l.border){c.strokeStyle=color(l.borderColor);c.strokeRect(l.x+.5,l.y+.5,l.width-1,l.height-1);}if(!l.data){c.strokeStyle=color(2);for(let i=-l.height;i<l.width;i+=8){c.beginPath();c.moveTo(l.x+i,l.y+l.height);c.lineTo(l.x+i+l.height,l.y);c.stroke();}c.restore();return;}const img=getCachedImage(l.data,renderCanvasView);if(img&&img.complete&&img.naturalWidth)drawImageActual(c,l,img);c.restore();}
 function drawImageActual(c,l,img){let dx=l.x,dy=l.y,dw=l.width,dh=l.height;const sr=img.width/img.height,tr=dw/dh;if(l.fit==='stretch'){c.drawImage(img,dx,dy,dw,dh);return;}if(l.fit==='contain'){let w=dw,h=dh;if(sr>tr)h=dw/sr;else w=dh*sr;c.drawImage(img,dx+(dw-w)/2,dy+(dh-h)/2,w,h);}else{let sx=0,sy=0,sw=img.width,sh=img.height;if(sr>tr){sw=img.height*tr;sx=(img.width-sw)/2}else{sh=img.width/tr;sy=(img.height-sh)/2}c.drawImage(img,sx,sy,sw,sh,dx,dy,dw,dh);}}
 function drawPaint(c,l){for(const [k,v] of Object.entries(l.pixels)){const [x,y]=k.split(',').map(Number);c.fillStyle=color(v);c.fillRect(x,y,1,1);}}
@@ -487,7 +537,7 @@ function renderStickerPicker(){
 function renderProps(){const host=document.getElementById('properties'),l=selected();if(!l){host.innerHTML='<p class="muted">Select a layer.</p>';return;}let h=`${field('Name','name','text')}<div class="propGrid">${field('X','x')}${field('Y','y')}</div>`;
  if(l.type==='border')h+=selectField('Style','style',['none','simple','double','fancy-1','fancy-2','minimal'])+paletteSelect('Outer','outer')+paletteSelect('Inner','inner')+paletteSelect('Accent','accent')+paletteSelect('Ornament','ornament');
  if(l.type==='title')h+=`<label>Text<textarea data-key="text">${escapeHtml(l.text)}</textarea></label><div class="propGrid">${field('Width','width')}${field('Height','height')}${field('Scale','scale','number','min="1" max="4"')}${field('Spacing','spacing','number','min="0" max="4"')}</div>`+selectField('Align','align',['left','center','right'])+paletteSelect('Color','color');
- if(l.type==='text')h+=`<label>Text<textarea data-key="text">${escapeHtml(l.text)}</textarea></label><div class="propGrid">${field('Width','width')}${field('Height','height')}${field('Scale','scale','number','min="1" max="4"')}${field('Spacing','spacing')}${field('Line spacing','lineSpacing')}</div>`+selectField('Align','align',['left','center','right'])+paletteSelect('Color','color');
+ if(l.type==='text')h+=`<label>Text<textarea data-key="text" rows="6">${escapeHtml(l.text)}</textarea></label><p class="small">Press Enter to add a new line. Lines will also wrap automatically to the configured width.</p><div class="propGrid">${field('Width','width')}${field('Height','height')}${field('Scale','scale','number','min="1" max="4"')}${field('Spacing','spacing')}${field('Line spacing','lineSpacing')}</div>`+selectField('Align','align',['left','center','right'])+paletteSelect('Color','color');
  if(l.type==='image')h+=`<div class="propGrid">${field('Width','width')}${field('Height','height')}</div>`+selectField('Fit','fit',['contain','cover','stretch'])+`<label class="checkboxRow"><input data-key="border" type="checkbox" ${l.border?'checked':''}> Border</label>`+paletteSelect('Border color','borderColor')+`<label>Image<input id="imageUpload" class="fileInput" type="file" accept="image/*"></label><button id="clearImage">Clear image</button>`;
  if(l.type==='paint'){
    const selection=currentPaintSelection();
