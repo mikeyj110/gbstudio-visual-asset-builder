@@ -20,6 +20,8 @@ A layer-based visual editor for creating GB Studio assets, including scene backg
 
 ## Browser / Docker
 
+Can be run in browser via Docker.  Really helpful if you want to adjust things.
+
 ```bash
 docker compose up --build
 ```
@@ -27,6 +29,7 @@ docker compose up --build
 Open <http://localhost:8080>.
 
 ## Desktop development
+Uses Tauri so it can be ported to pretty much any OS.
 
 ### Prerequisites
 
