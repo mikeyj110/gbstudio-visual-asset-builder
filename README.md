@@ -53,6 +53,9 @@ Build a native desktop bundle:
 npm run desktop:build
 ```
 
+Build a Windows desktop bundle from MacOS:
+```npm run tauri build -- --runner cargo-xwin --target x86_64-pc-windows-msvc```
+
 Build artifacts are written below `src-tauri/target/release/bundle/`.
 
 ## Project structure
